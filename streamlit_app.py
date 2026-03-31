@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import date
+import unicodedata
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -137,7 +138,27 @@ st.markdown(
 # =========================================================
 # UTILIDADES
 # =========================================================
-def fmt_number(value, unit=""):
+def normalize_text(text):
+    text = "" if text is None else str(text)
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return text.strip().lower()
+
+
+def is_occupancy_rate_kpi(kpi_name):
+    name = normalize_text(kpi_name)
+    return "tasa" in name and "ocup" in name
+
+
+def get_display_value(value, unit="", kpi_name=""):
+    if pd.isna(value):
+        return value
+    if unit == "%" and is_occupancy_rate_kpi(kpi_name) and abs(float(value)) <= 1.5:
+        return float(value) * 100
+    return value
+
+
+def fmt_number(value, unit="", kpi_name=""):
+    value = get_display_value(value, unit, kpi_name)
     if pd.isna(value):
         return "-"
     if unit == "CLP":
@@ -234,6 +255,15 @@ def build_line_chart(df, title, color=None, line_dash=None, height=340):
     fig.update_xaxes(title="")
     fig.update_yaxes(title="")
     return fig
+
+
+def scale_kpi_dataframe_for_display(df, kpi_name, value_columns=("valor",)):
+    df = df.copy()
+    if is_occupancy_rate_kpi(kpi_name):
+        for col in value_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: x * 100 if pd.notna(x) and abs(float(x)) <= 1.5 else x)
+    return df
 
 # =========================================================
 # CARGA DE DATOS
@@ -427,8 +457,8 @@ with tabs[0]:
                 for _, row in servicio_df.iterrows():
                     render_kpi_card(
                         str(row["nombre"]),
-                        fmt_number(row["valor"], row["unidad"]),
-                        f"Meta: {fmt_number(row['meta'], row['unidad'])}",
+                        fmt_number(row["valor"], row["unidad"], row["nombre"]),
+                        f"Meta: {fmt_number(row['meta'], row["unidad"], row["nombre"])}",
                         f"Desviación: {fmt_pct(row['variacion_pct'])}",
                         row["estado"]
                     )
@@ -440,6 +470,7 @@ with tabs[0]:
         kpi_hist_sel = st.selectbox("KPI para evolución", options=nombres_kpi, key="kpi_hist_sel_resumen")
 
         hist_sel = kpis_hist[kpis_hist["nombre"] == kpi_hist_sel].copy()
+        hist_sel = scale_kpi_dataframe_for_display(hist_sel, kpi_hist_sel, ("valor", "meta"))
         hist_bt = hist_sel[hist_sel["servicio"] == "Biotren"].copy()
         hist_rural = hist_sel[hist_sel["servicio"].isin(RURAL_SERVICES)].copy()
 
@@ -495,6 +526,7 @@ with tabs[1]:
     kpi_sel = st.selectbox("Seleccione KPI", options=nombres_kpi, key="kpi_analisis")
 
     hist_kpi = kpis_hist[kpis_hist["nombre"] == kpi_sel].copy()
+    hist_kpi = scale_kpi_dataframe_for_display(hist_kpi, kpi_sel, ("valor", "meta"))
 
     st.markdown("<div class='section-title'>Evolución por grupos de servicio</div>", unsafe_allow_html=True)
     col_a, col_b = st.columns(2)
@@ -520,6 +552,7 @@ with tabs[1]:
 
     st.markdown("<div class='section-title'>Valor vs meta en el período seleccionado</div>", unsafe_allow_html=True)
     actual = kpis_f[kpis_f["nombre"] == kpi_sel].copy()
+    actual = scale_kpi_dataframe_for_display(actual, kpi_sel, ("valor", "meta"))
     if not actual.empty:
         fig_meta = go.Figure()
         fig_meta.add_trace(go.Bar(
@@ -548,14 +581,14 @@ with tabs[1]:
 
     st.markdown("<div class='section-title'>Detalle del KPI</div>", unsafe_allow_html=True)
 
-    detalle_cols = ["servicio", "categoria", "valor", "meta", "unidad", "variacion_pct", "estado"]
+    detalle_cols = ["nombre", "servicio", "categoria", "valor", "meta", "unidad", "variacion_pct", "estado"]
     if "observacion" in kpis_f.columns:
         detalle_cols.append("observacion")
     detalle_kpi = kpis_f[kpis_f["nombre"] == kpi_sel][detalle_cols].copy()
 
     if not detalle_kpi.empty:
-        detalle_kpi["Valor"] = detalle_kpi.apply(lambda r: fmt_number(r["valor"], r["unidad"]), axis=1)
-        detalle_kpi["Meta"] = detalle_kpi.apply(lambda r: fmt_number(r["meta"], r["unidad"]), axis=1)
+        detalle_kpi["Valor"] = detalle_kpi.apply(lambda r: fmt_number(r["valor"], r["unidad"], r["nombre"]), axis=1)
+        detalle_kpi["Meta"] = detalle_kpi.apply(lambda r: fmt_number(r["meta"], r["unidad"], r["nombre"]), axis=1)
         detalle_kpi["Variación"] = detalle_kpi["variacion_pct"].apply(fmt_pct)
 
         cols_show = ["servicio", "categoria", "Valor", "Meta", "Variación", "estado"]
