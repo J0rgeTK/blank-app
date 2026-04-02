@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -478,18 +477,21 @@ def build_station_map(df_map):
 
     plot_df["hover_afluencia"] = plot_df["entradas"].apply(fmt_pax)
     plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
-    plot_df["label_map"] = plot_df.apply(lambda r: build_station_map_text(r.get("estacion"), r.get("entradas")), axis=1)
+    plot_df["label_station"] = plot_df["estacion"].apply(compact_station_name).fillna("")
+    plot_df["label_value"] = plot_df["entradas"].apply(fmt_pax).fillna("")
+    plot_df["lat_float"] = pd.to_numeric(plot_df["latitud"], errors="coerce")
+    plot_df["lon_float"] = pd.to_numeric(plot_df["longitud"], errors="coerce")
 
     fig = go.Figure()
     fig.add_trace(
         go.Scattermapbox(
-            lat=plot_df["latitud"].astype(float),
-            lon=plot_df["longitud"].astype(float),
+            lat=plot_df["lat_float"],
+            lon=plot_df["lon_float"],
             mode="markers",
             marker=dict(
                 size=plot_df["marker_size"],
                 color=EFE_BLUE,
-                opacity=0.88,
+                opacity=0.9,
                 sizemode="diameter",
                 symbol="circle",
             ),
@@ -503,13 +505,41 @@ def build_station_map(df_map):
             showlegend=False,
         )
     )
+
+    # Capa de apoyo blanca para mejorar legibilidad
     fig.add_trace(
         go.Scattermapbox(
-            lat=plot_df["latitud"].astype(float),
-            lon=plot_df["longitud"].astype(float),
+            lat=plot_df["lat_float"],
+            lon=plot_df["lon_float"],
             mode="text",
-            text=plot_df["label_map"].fillna(""),
-            textposition="top right",
+            text=plot_df["label_station"],
+            textposition="middle right",
+            textfont=dict(size=15, color="#FFFFFF", family="Arial Black, Arial, sans-serif"),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=plot_df["lat_float"],
+            lon=plot_df["lon_float"],
+            mode="text",
+            text=plot_df["label_station"],
+            textposition="middle right",
+            textfont=dict(size=12, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+
+    # Valor visible permanentemente bajo el nombre
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=plot_df["lat_float"],
+            lon=plot_df["lon_float"],
+            mode="text",
+            text=plot_df["label_value"],
+            textposition="bottom right",
             textfont=dict(size=14, color="#FFFFFF", family="Arial Black, Arial, sans-serif"),
             hoverinfo="skip",
             showlegend=False,
@@ -517,12 +547,12 @@ def build_station_map(df_map):
     )
     fig.add_trace(
         go.Scattermapbox(
-            lat=plot_df["latitud"].astype(float),
-            lon=plot_df["longitud"].astype(float),
+            lat=plot_df["lat_float"],
+            lon=plot_df["lon_float"],
             mode="text",
-            text=plot_df["label_map"].fillna(""),
-            textposition="top right",
-            textfont=dict(size=12, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
+            text=plot_df["label_value"],
+            textposition="bottom right",
+            textfont=dict(size=11, color="#1F2937", family="Arial Black, Arial, sans-serif"),
             hoverinfo="skip",
             showlegend=False,
         )
