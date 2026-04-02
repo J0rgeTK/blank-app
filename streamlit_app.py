@@ -509,8 +509,8 @@ def build_station_map(df_map):
             lon=plot_df["longitud"].astype(float),
             mode="text",
             text=plot_df["label_map"].fillna(""),
-            textposition="top center",
-            textfont=dict(size=13, color="#FFFFFF", family="Arial Black, Arial, sans-serif"),
+            textposition="top right",
+            textfont=dict(size=14, color="#FFFFFF", family="Arial Black, Arial, sans-serif"),
             hoverinfo="skip",
             showlegend=False,
         )
@@ -521,8 +521,8 @@ def build_station_map(df_map):
             lon=plot_df["longitud"].astype(float),
             mode="text",
             text=plot_df["label_map"].fillna(""),
-            textposition="top center",
-            textfont=dict(size=11, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
+            textposition="top right",
+            textfont=dict(size=12, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
             hoverinfo="skip",
             showlegend=False,
         )
@@ -531,6 +531,18 @@ def build_station_map(df_map):
     fig.update_layout(
         mapbox=dict(
             style="white-bg",
+            layers=[
+                dict(
+                    sourcetype="raster",
+                    sourceattribution="© OpenStreetMap contributors © CARTO",
+                    source=[
+                        "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+                        "https://b.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+                        "https://c.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+                    ],
+                    below="traces",
+                )
+            ],
             center=center,
             zoom=zoom,
         ),
