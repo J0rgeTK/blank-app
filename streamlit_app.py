@@ -373,56 +373,79 @@ def scale_kpi_dataframe_for_display(df, kpi_name, value_columns=("valor",)):
     return df
 
 
-def build_station_map(df_map, color_metric_label):
+def build_station_map(df_map):
     center = {"lat": df_map["latitud"].mean(), "lon": df_map["longitud"].mean()}
     plot_df = df_map.copy()
-    plot_df["entradas_size"] = plot_df["entradas"].fillna(0).clip(lower=0)
-    plot_df["entradas_size"] = plot_df["entradas_size"].replace(0, 1)
+    plot_df["afluencia_size"] = pd.to_numeric(plot_df["entradas"], errors="coerce").fillna(0).clip(lower=0)
 
-    fig = px.scatter_mapbox(
-        plot_df,
-        lat="latitud",
-        lon="longitud",
-        size="entradas_size",
-        color="color_metric",
-        size_max=28,
-        zoom=8,
-        center=center,
-        mapbox_style="open-street-map",
-        color_continuous_scale=MAP_SCALE,
-        hover_name="estacion",
-        text="estacion",
-        hover_data={
-            "servicio": True,
-            "comuna": True,
-            "region": True,
-            "entradas_fmt": True,
-            "meta_entradas_fmt": True,
-            "perdida_pax_fmt": True,
-            "fuga_pct_fmt": True,
-            "observacion_afluencia": True,
-            "observacion_estacion": True,
-            "latitud": False,
-            "longitud": False,
-            "entradas_size": False,
-            "color_metric": False,
-        },
-        labels={
-            "entradas_fmt": "Entradas",
-            "meta_entradas_fmt": "Meta",
-            "perdida_pax_fmt": "Pérdida",
-            "fuga_pct_fmt": "Fuga %",
-            "observacion_afluencia": "Obs. afluencia",
-            "observacion_estacion": "Obs. estación",
-        },
-        title=f"Mapa de estaciones - {color_metric_label}",
+    max_val = float(plot_df["afluencia_size"].max()) if len(plot_df) else 0
+    if max_val <= 0:
+        plot_df["marker_size"] = 10
+    else:
+        plot_df["marker_size"] = 10 + (plot_df["afluencia_size"] / max_val) * 22
+
+    plot_df["hover_afluencia"] = plot_df["entradas"].apply(fmt_pax)
+    plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
+    plot_df["hover_perdida"] = plot_df["perdida_pax"].apply(fmt_pax)
+    plot_df["hover_fuga"] = plot_df["fuga_pct_display"].apply(fmt_fuga_pct)
+
+    line_df = plot_df.copy()
+    if "orden_trazado" in line_df.columns:
+        line_df["orden_trazado"] = pd.to_numeric(line_df["orden_trazado"], errors="coerce")
+        line_df = line_df.sort_values(["orden_trazado", "estacion"])
+    else:
+        line_df = line_df.sort_values("estacion")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=line_df["latitud"],
+            lon=line_df["longitud"],
+            mode="lines",
+            line=dict(width=3, color="#6B7280"),
+            hoverinfo="skip",
+            showlegend=False,
+        )
     )
-    fig.update_traces(textposition="top center")
+
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=plot_df["latitud"],
+            lon=plot_df["longitud"],
+            mode="markers+text",
+            text=plot_df["estacion"],
+            textposition="top center",
+            textfont=dict(size=10, color=TEXT_MAIN),
+            marker=dict(
+                size=plot_df["marker_size"],
+                color=EFE_BLUE,
+                opacity=0.75,
+                sizemode="diameter",
+            ),
+            customdata=plot_df[["comuna", "servicio", "hover_afluencia", "hover_meta", "hover_perdida", "hover_fuga"]],
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                "Comuna: %{customdata[0]}<br>"
+                "Servicio: %{customdata[1]}<br>"
+                "Afluencia: %{customdata[2]}<br>"
+                "Meta: %{customdata[3]}<br>"
+                "Pérdida: %{customdata[4]}<br>"
+                "Fuga: %{customdata[5]}<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+
     fig.update_layout(
-        margin=dict(l=10, r=10, t=50, b=10),
+        mapbox=dict(
+            style="carto-positron",
+            center=center,
+            zoom=8,
+        ),
+        margin=dict(l=8, r=8, t=20, b=8),
         paper_bgcolor=EFE_WHITE,
-        height=620,
-        coloraxis_colorbar_title=color_metric_label,
+        height=860,
+        showlegend=False,
     )
     return fig
 
@@ -821,8 +844,7 @@ with tabs[3]:
     st.markdown("<div class='section-title'>Detalle Servicio</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='map-note'>"
-        "Esta sección combina la georreferenciación de estaciones con la afluencia mensual, la meta y la pérdida de pasajeros. "
-        "El tamaño del punto representa las entradas y el color puede mostrar pérdida absoluta o fuga porcentual."
+        "Esta sección muestra la afluencia registrada por estación de forma georreferenciada, junto con un análisis comparativo por servicio y período."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -867,19 +889,6 @@ with tabs[3]:
                     horizontal=True,
                 )
 
-                metric_map = {
-                    "Pérdida de pasajeros": "perdida_pax",
-                    "Fuga porcentual": "fuga_pct",
-                }
-                detalle_metric_label = option_selector(
-                    "Color del mapa",
-                    list(metric_map.keys()),
-                    key="detalle_metric_selector",
-                    default="Pérdida de pasajeros",
-                    horizontal=True,
-                )
-                detalle_metric_col = metric_map[detalle_metric_label]
-
                 estaciones_srv = estaciones_activas[estaciones_activas["servicio"].astype(str) == str(detalle_servicio_sel)].copy()
                 if "orden_trazado" in estaciones_srv.columns:
                     estaciones_srv = estaciones_srv.sort_values(["orden_trazado", "estacion"])
@@ -902,10 +911,6 @@ with tabs[3]:
                 detail_df["perdida_pax"] = pd.to_numeric(detail_df.get("perdida_pax"), errors="coerce")
                 detail_df["fuga_pct"] = pd.to_numeric(detail_df.get("fuga_pct"), errors="coerce")
                 detail_df["fuga_pct_display"] = detail_df["fuga_pct"].apply(maybe_scale_percent)
-                detail_df["color_metric"] = detail_df[detalle_metric_col]
-                if detalle_metric_col == "fuga_pct":
-                    detail_df["color_metric"] = detail_df["fuga_pct_display"]
-
                 detail_df["entradas_fmt"] = detail_df["entradas"].apply(fmt_pax)
                 detail_df["meta_entradas_fmt"] = detail_df["meta_entradas"].apply(fmt_pax)
                 detail_df["perdida_pax_fmt"] = detail_df["perdida_pax"].apply(fmt_pax)
@@ -915,12 +920,12 @@ with tabs[3]:
 
                 valid_map_df = detail_df.dropna(subset=["latitud", "longitud"]).copy()
 
-                top_left, top_right = st.columns([1.8, 1])
+                top_left, top_right = st.columns([1.2, 1])
                 with top_left:
                     if valid_map_df.empty:
                         st.warning("No existen coordenadas válidas para graficar las estaciones del servicio seleccionado.")
                     else:
-                        map_fig = build_station_map(valid_map_df, detalle_metric_label)
+                        map_fig = build_station_map(valid_map_df)
                         st.plotly_chart(map_fig, use_container_width=True)
 
                 with top_right:
@@ -931,43 +936,77 @@ with tabs[3]:
 
                     m1, m2 = st.columns(2)
                     m3, m4 = st.columns(2)
-                    m1.metric("Entradas", fmt_pax(total_entradas))
-                    m2.metric("Meta entradas", fmt_pax(total_meta))
+                    m1.metric("Afluencia", fmt_pax(total_entradas))
+                    m2.metric("Meta afluencia", fmt_pax(total_meta))
                     m3.metric("Pérdida total", fmt_pax(total_perdida))
                     m4.metric("Fuga promedio", fmt_fuga_pct(fuga_prom))
 
                     st.markdown("<div class='section-title'>Focos de intervención</div>", unsafe_allow_html=True)
                     focos = detail_df[["estacion", "entradas", "meta_entradas", "perdida_pax", "fuga_pct_display"]].copy()
                     focos = focos.sort_values(["perdida_pax", "fuga_pct_display"], ascending=[False, False]).head(10)
-                    focos["Entradas"] = focos["entradas"].apply(fmt_pax)
+                    focos["Afluencia"] = focos["entradas"].apply(fmt_pax)
                     focos["Meta"] = focos["meta_entradas"].apply(fmt_pax)
                     focos["Pérdida"] = focos["perdida_pax"].apply(fmt_pax)
                     focos["Fuga %"] = focos["fuga_pct_display"].apply(fmt_fuga_pct)
-                    focos_show = focos[["estacion", "Entradas", "Meta", "Pérdida", "Fuga %"]].rename(columns={"estacion": "Estación"})
+                    focos_show = focos[["estacion", "Afluencia", "Meta", "Pérdida", "Fuga %"]].rename(columns={"estacion": "Estación"})
                     st.dataframe(focos_show, use_container_width=True, hide_index=True)
 
-                st.markdown("<div class='section-title'>Comparativo de pérdida por estación</div>", unsafe_allow_html=True)
-                bar_df = detail_df[["estacion", "perdida_pax"]].copy().dropna().sort_values("perdida_pax", ascending=False).head(15)
-                if bar_df.empty:
-                    st.info("No hay datos de pérdida de pasajeros para el período seleccionado.")
+                st.markdown("<div class='section-title'>Comparativo acumulado por estación</div>", unsafe_allow_html=True)
+                area_df = detail_df[["estacion", "orden_trazado", "entradas", "perdida_pax"]].copy()
+                if "orden_trazado" in area_df.columns:
+                    area_df["orden_trazado"] = pd.to_numeric(area_df["orden_trazado"], errors="coerce")
+                    area_df = area_df.sort_values(["orden_trazado", "estacion"])
                 else:
-                    fig_bar = px.bar(bar_df, x="estacion", y="perdida_pax", title="Estaciones con mayor pérdida de pasajeros", text="perdida_pax")
-                    fig_bar.update_traces(marker_color=EFE_RED)
-                    fig_bar.update_layout(plot_bgcolor=EFE_WHITE, paper_bgcolor=EFE_WHITE, margin=dict(l=20, r=20, t=50, b=20), height=360)
-                    fig_bar.update_xaxes(title="", tickangle=-45)
-                    fig_bar.update_yaxes(title="Pérdida de pasajeros")
-                    st.plotly_chart(fig_bar, use_container_width=True)
+                    area_df = area_df.sort_values("estacion")
+                area_df["entradas"] = pd.to_numeric(area_df["entradas"], errors="coerce").fillna(0)
+                area_df["perdida_pax"] = pd.to_numeric(area_df["perdida_pax"], errors="coerce").fillna(0)
+
+                if area_df.empty:
+                    st.info("No hay datos de afluencia o pérdida para el período seleccionado.")
+                else:
+                    fig_area = go.Figure()
+                    fig_area.add_trace(
+                        go.Scatter(
+                            x=area_df["estacion"],
+                            y=area_df["entradas"],
+                            mode="lines",
+                            name="Afluencia registrada",
+                            line=dict(color=EFE_BLUE, width=2),
+                            fill="tozeroy",
+                        )
+                    )
+                    fig_area.add_trace(
+                        go.Scatter(
+                            x=area_df["estacion"],
+                            y=area_df["perdida_pax"],
+                            mode="lines",
+                            name="Pérdida de pasajeros",
+                            line=dict(color=EFE_RED, width=2),
+                            fill="tozeroy",
+                        )
+                    )
+                    fig_area.update_layout(
+                        title="Afluencia registrada y pérdida de pasajeros por estación",
+                        plot_bgcolor=EFE_WHITE,
+                        paper_bgcolor=EFE_WHITE,
+                        margin=dict(l=20, r=20, t=50, b=20),
+                        height=420,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    )
+                    fig_area.update_xaxes(title="", tickangle=-90)
+                    fig_area.update_yaxes(title="Pasajeros")
+                    st.plotly_chart(fig_area, use_container_width=True)
 
                 st.markdown("<div class='section-title'>Detalle de estaciones</div>", unsafe_allow_html=True)
                 detail_table = detail_df[[
                     "estacion", "comuna", "region", "entradas", "meta_entradas", "perdida_pax", "fuga_pct_display", "observacion_afluencia", "observacion_estacion"
                 ]].copy()
-                detail_table["Entradas"] = detail_table["entradas"].apply(fmt_pax)
-                detail_table["Meta entradas"] = detail_table["meta_entradas"].apply(fmt_pax)
+                detail_table["Afluencia"] = detail_table["entradas"].apply(fmt_pax)
+                detail_table["Meta afluencia"] = detail_table["meta_entradas"].apply(fmt_pax)
                 detail_table["Pérdida pax"] = detail_table["perdida_pax"].apply(fmt_pax)
                 detail_table["Fuga %"] = detail_table["fuga_pct_display"].apply(fmt_fuga_pct)
                 detail_table = detail_table[[
-                    "estacion", "comuna", "region", "Entradas", "Meta entradas", "Pérdida pax", "Fuga %", "observacion_afluencia", "observacion_estacion"
+                    "estacion", "comuna", "region", "Afluencia", "Meta afluencia", "Pérdida pax", "Fuga %", "observacion_afluencia", "observacion_estacion"
                 ]].rename(columns={
                     "estacion": "Estación",
                     "comuna": "Comuna",
