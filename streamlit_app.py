@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -195,6 +196,28 @@ def abbreviate_station_label(name):
     token = parts[0] if parts else cleaned.replace(" ", "")
     token = "".join(ch for ch in token if ch.isalnum())
     return token[:3].upper()
+
+
+def compact_station_name(name):
+    raw = "" if name is None else str(name).strip()
+    if raw == "":
+        return ""
+
+    parts = raw.split()
+    if len(raw) <= 14:
+        return raw.upper()
+    if len(parts) >= 2:
+        first = parts[0]
+        second = parts[1]
+        if len(first) <= 9:
+            second_short = second if len(second) <= 5 else second[:5] + "."
+            return f"{first} {second_short}".upper()
+        return f"{first[:9]}. {second[:4]}.".upper()
+    return (raw[:14] + "…").upper()
+
+
+def build_station_map_text(name, pax_value):
+    return f"{compact_station_name(name)}<br>{fmt_pax(pax_value)}"
 
 
 def is_occupancy_rate_kpi(kpi_name):
@@ -455,17 +478,14 @@ def build_station_map(df_map):
 
     plot_df["hover_afluencia"] = plot_df["entradas"].apply(fmt_pax)
     plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
-    plot_df["label_map"] = plot_df["estacion"].apply(abbreviate_station_label)
+    plot_df["label_map"] = plot_df.apply(lambda r: build_station_map_text(r.get("estacion"), r.get("entradas")), axis=1)
 
     fig = go.Figure()
     fig.add_trace(
         go.Scattermapbox(
             lat=plot_df["latitud"].astype(float),
             lon=plot_df["longitud"].astype(float),
-            mode="markers+text",
-            text=(plot_df["label_map"].fillna("") + "<br>" + plot_df["hover_afluencia"].fillna("")),
-            textposition="top right",
-            textfont=dict(size=10, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
+            mode="markers",
             marker=dict(
                 size=plot_df["marker_size"],
                 color=EFE_BLUE,
@@ -477,16 +497,40 @@ def build_station_map(df_map):
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "Servicio: %{customdata[1]}<br>"
-                "Afluencia: %{customdata[2]}<br>"
+                "%{customdata[2]}<br>"
                 "Meta: %{customdata[3]}<extra></extra>"
             ),
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=plot_df["latitud"].astype(float),
+            lon=plot_df["longitud"].astype(float),
+            mode="text",
+            text=plot_df["label_map"].fillna(""),
+            textposition="top center",
+            textfont=dict(size=13, color="#FFFFFF", family="Arial Black, Arial, sans-serif"),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scattermapbox(
+            lat=plot_df["latitud"].astype(float),
+            lon=plot_df["longitud"].astype(float),
+            mode="text",
+            text=plot_df["label_map"].fillna(""),
+            textposition="top center",
+            textfont=dict(size=11, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
+            hoverinfo="skip",
             showlegend=False,
         )
     )
 
     fig.update_layout(
         mapbox=dict(
-            style="carto-positron",
+            style="white-bg",
             center=center,
             zoom=zoom,
         ),
