@@ -436,8 +436,8 @@ def compute_map_view(df_map):
     lon_range = max(lon_max - lon_min, 0.002)
     max_range = max(lat_range, lon_range)
 
-    zoom = 9.9 - math.log(max_range, 2)
-    zoom = max(7.2, min(15.2, zoom))
+    zoom = 9.6 - math.log(max_range, 2)
+    zoom = max(6.9, min(14.8, zoom))
 
     return center, zoom
 
@@ -463,14 +463,15 @@ def build_station_map(df_map):
             lat=plot_df["latitud"].astype(float),
             lon=plot_df["longitud"].astype(float),
             mode="markers+text",
-            text=plot_df["label_map"].fillna(""),
-            textposition="top center",
-            textfont=dict(size=10, color=TEXT_MAIN),
+            text=(plot_df["label_map"].fillna("") + "<br>" + plot_df["hover_afluencia"].fillna("")),
+            textposition="top right",
+            textfont=dict(size=10, color=EFE_BLUE, family="Arial Black, Arial, sans-serif"),
             marker=dict(
                 size=plot_df["marker_size"],
                 color=EFE_BLUE,
-                opacity=0.82,
+                opacity=0.88,
                 sizemode="diameter",
+                line=dict(width=2, color="#FFFFFF"),
             ),
             customdata=plot_df[["estacion", "servicio", "hover_afluencia", "hover_meta"]].fillna(""),
             hovertemplate=(
@@ -485,13 +486,13 @@ def build_station_map(df_map):
 
     fig.update_layout(
         mapbox=dict(
-            style="open-street-map",
+            style="carto-positron",
             center=center,
             zoom=zoom,
         ),
         margin=dict(l=8, r=8, t=20, b=8),
         paper_bgcolor=EFE_WHITE,
-        height=860,
+        height=920,
         showlegend=False,
     )
     return fig
@@ -967,7 +968,7 @@ with tabs[3]:
 
                 valid_map_df = detail_df.dropna(subset=["latitud", "longitud"]).copy()
 
-                top_left, top_right = st.columns([1.2, 1])
+                top_left, top_right = st.columns([0.9, 1.1])
                 with top_left:
                     if valid_map_df.empty:
                         st.warning("No existen coordenadas válidas para graficar las estaciones del servicio seleccionado.")
