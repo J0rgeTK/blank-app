@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import date
 import unicodedata
+import math
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -373,40 +374,104 @@ def scale_kpi_dataframe_for_display(df, kpi_name, value_columns=("valor",)):
     return df
 
 
+def infer_station_path(df_map):
+    route_df = df_map.dropna(subset=["latitud", "longitud"]).copy()
+    if len(route_df) < 2:
+        return route_df
+
+    coords = route_df[["latitud", "longitud"]].astype(float).to_numpy()
+
+    def dist(i, j):
+        return (coords[i][0] - coords[j][0]) ** 2 + (coords[i][1] - coords[j][1]) ** 2
+
+    max_pair = (0, 1)
+    max_d = -1
+    for i in range(len(coords)):
+        for j in range(i + 1, len(coords)):
+            d = dist(i, j)
+            if d > max_d:
+                max_d = d
+                max_pair = (i, j)
+
+    start = min(max_pair, key=lambda idx: (coords[idx][1], coords[idx][0]))
+    unvisited = set(range(len(coords)))
+    order = [start]
+    unvisited.remove(start)
+
+    while unvisited:
+        current = order[-1]
+        nxt = min(unvisited, key=lambda idx: dist(current, idx))
+        order.append(nxt)
+        unvisited.remove(nxt)
+
+    return route_df.iloc[order].copy()
+
+
+def compute_map_view(df_map):
+    lat_min, lat_max = float(df_map["latitud"].min()), float(df_map["latitud"].max())
+    lon_min, lon_max = float(df_map["longitud"].min()), float(df_map["longitud"].max())
+
+    center = {"lat": (lat_min + lat_max) / 2, "lon": (lon_min + lon_max) / 2}
+
+    lat_range = max(lat_max - lat_min, 0.01)
+    lon_range = max(lon_max - lon_min, 0.01)
+    max_range = max(lat_range, lon_range)
+
+    if max_range > 20:
+        zoom = 4
+    elif max_range > 10:
+        zoom = 5
+    elif max_range > 5:
+        zoom = 6
+    elif max_range > 2:
+        zoom = 7
+    elif max_range > 1:
+        zoom = 8
+    elif max_range > 0.5:
+        zoom = 9
+    elif max_range > 0.25:
+        zoom = 10
+    elif max_range > 0.12:
+        zoom = 11
+    elif max_range > 0.06:
+        zoom = 12
+    else:
+        zoom = 13
+
+    return center, zoom
+
+
 def build_station_map(df_map):
-    center = {"lat": df_map["latitud"].mean(), "lon": df_map["longitud"].mean()}
     plot_df = df_map.copy()
+    center, zoom = compute_map_view(plot_df)
     plot_df["afluencia_size"] = pd.to_numeric(plot_df["entradas"], errors="coerce").fillna(0).clip(lower=0)
 
     max_val = float(plot_df["afluencia_size"].max()) if len(plot_df) else 0
     if max_val <= 0:
-        plot_df["marker_size"] = 10
+        plot_df["marker_size"] = 12
     else:
-        plot_df["marker_size"] = 10 + (plot_df["afluencia_size"] / max_val) * 22
+        plot_df["marker_size"] = 10 + (plot_df["afluencia_size"] / max_val) * 24
 
     plot_df["hover_afluencia"] = plot_df["entradas"].apply(fmt_pax)
     plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
     plot_df["hover_perdida"] = plot_df["perdida_pax"].apply(fmt_pax)
     plot_df["hover_fuga"] = plot_df["fuga_pct_display"].apply(fmt_fuga_pct)
 
-    line_df = plot_df.copy()
-    if "orden_trazado" in line_df.columns:
-        line_df["orden_trazado"] = pd.to_numeric(line_df["orden_trazado"], errors="coerce")
-        line_df = line_df.sort_values(["orden_trazado", "estacion"])
-    else:
-        line_df = line_df.sort_values("estacion")
+    route_df = infer_station_path(plot_df)
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Scattermapbox(
-            lat=line_df["latitud"],
-            lon=line_df["longitud"],
-            mode="lines",
-            line=dict(width=3, color="#6B7280"),
-            hoverinfo="skip",
-            showlegend=False,
+    if len(route_df) >= 2:
+        fig.add_trace(
+            go.Scattermapbox(
+                lat=route_df["latitud"],
+                lon=route_df["longitud"],
+                mode="lines",
+                line=dict(width=4, color="#4B5563"),
+                opacity=0.55,
+                hoverinfo="skip",
+                showlegend=False,
+            )
         )
-    )
 
     fig.add_trace(
         go.Scattermapbox(
@@ -419,7 +484,7 @@ def build_station_map(df_map):
             marker=dict(
                 size=plot_df["marker_size"],
                 color=EFE_BLUE,
-                opacity=0.75,
+                opacity=0.80,
                 sizemode="diameter",
             ),
             customdata=plot_df[["comuna", "servicio", "hover_afluencia", "hover_meta", "hover_perdida", "hover_fuga"]],
@@ -440,7 +505,7 @@ def build_station_map(df_map):
         mapbox=dict(
             style="carto-positron",
             center=center,
-            zoom=8,
+            zoom=zoom,
         ),
         margin=dict(l=8, r=8, t=20, b=8),
         paper_bgcolor=EFE_WHITE,
@@ -844,7 +909,7 @@ with tabs[3]:
     st.markdown("<div class='section-title'>Detalle Servicio</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='map-note'>"
-        "Esta sección muestra la afluencia registrada por estación de forma georreferenciada, junto con un análisis comparativo por servicio y período."
+        "Esta sección muestra la afluencia registrada por estación de forma georreferenciada, con encuadre automático del mapa para el servicio seleccionado y un análisis comparativo por estación."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -951,51 +1016,50 @@ with tabs[3]:
                     focos_show = focos[["estacion", "Afluencia", "Meta", "Pérdida", "Fuga %"]].rename(columns={"estacion": "Estación"})
                     st.dataframe(focos_show, use_container_width=True, hide_index=True)
 
-                st.markdown("<div class='section-title'>Comparativo acumulado por estación</div>", unsafe_allow_html=True)
-                area_df = detail_df[["estacion", "orden_trazado", "entradas", "perdida_pax"]].copy()
-                if "orden_trazado" in area_df.columns:
-                    area_df["orden_trazado"] = pd.to_numeric(area_df["orden_trazado"], errors="coerce")
-                    area_df = area_df.sort_values(["orden_trazado", "estacion"])
+                st.markdown("<div class='section-title'>Comparativo de afluencia y meta por estación</div>", unsafe_allow_html=True)
+                bar_df = detail_df[["estacion", "entradas", "meta_entradas"]].copy()
+                if "orden_trazado" in detail_df.columns:
+                    temp_order = detail_df[["estacion", "orden_trazado"]].copy()
+                    temp_order["orden_trazado"] = pd.to_numeric(temp_order["orden_trazado"], errors="coerce")
+                    temp_order = temp_order.sort_values(["orden_trazado", "estacion"])
+                    station_order = temp_order["estacion"].dropna().astype(str).tolist()
                 else:
-                    area_df = area_df.sort_values("estacion")
-                area_df["entradas"] = pd.to_numeric(area_df["entradas"], errors="coerce").fillna(0)
-                area_df["perdida_pax"] = pd.to_numeric(area_df["perdida_pax"], errors="coerce").fillna(0)
+                    station_order = sorted(bar_df["estacion"].dropna().astype(str).tolist())
+                bar_df["entradas"] = pd.to_numeric(bar_df["entradas"], errors="coerce").fillna(0)
+                bar_df["meta_entradas"] = pd.to_numeric(bar_df["meta_entradas"], errors="coerce").fillna(0)
 
-                if area_df.empty:
-                    st.info("No hay datos de afluencia o pérdida para el período seleccionado.")
+                if bar_df.empty:
+                    st.info("No hay datos de afluencia o meta para el período seleccionado.")
                 else:
-                    fig_area = go.Figure()
-                    fig_area.add_trace(
-                        go.Scatter(
-                            x=area_df["estacion"],
-                            y=area_df["entradas"],
-                            mode="lines",
+                    fig_bar = go.Figure()
+                    fig_bar.add_trace(
+                        go.Bar(
+                            x=bar_df["estacion"],
+                            y=bar_df["entradas"],
                             name="Afluencia registrada",
-                            line=dict(color=EFE_BLUE, width=2),
-                            fill="tozeroy",
+                            marker_color=EFE_BLUE,
                         )
                     )
-                    fig_area.add_trace(
-                        go.Scatter(
-                            x=area_df["estacion"],
-                            y=area_df["perdida_pax"],
-                            mode="lines",
-                            name="Pérdida de pasajeros",
-                            line=dict(color=EFE_RED, width=2),
-                            fill="tozeroy",
+                    fig_bar.add_trace(
+                        go.Bar(
+                            x=bar_df["estacion"],
+                            y=bar_df["meta_entradas"],
+                            name="Meta",
+                            marker_color=EFE_RED,
                         )
                     )
-                    fig_area.update_layout(
-                        title="Afluencia registrada y pérdida de pasajeros por estación",
+                    fig_bar.update_layout(
+                        title="Afluencia registrada vs meta por estación",
                         plot_bgcolor=EFE_WHITE,
                         paper_bgcolor=EFE_WHITE,
                         margin=dict(l=20, r=20, t=50, b=20),
-                        height=420,
+                        height=440,
+                        barmode="group",
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     )
-                    fig_area.update_xaxes(title="", tickangle=-90)
-                    fig_area.update_yaxes(title="Pasajeros")
-                    st.plotly_chart(fig_area, use_container_width=True)
+                    fig_bar.update_xaxes(title="", tickangle=-90, categoryorder="array", categoryarray=station_order)
+                    fig_bar.update_yaxes(title="Pasajeros")
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
                 st.markdown("<div class='section-title'>Detalle de estaciones</div>", unsafe_allow_html=True)
                 detail_table = detail_df[[
