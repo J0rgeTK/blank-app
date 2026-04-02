@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -458,24 +457,14 @@ def build_station_map(df_map):
     plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
     plot_df["label_map"] = plot_df["estacion"].apply(abbreviate_station_label)
 
-    positions_cycle = [
-        "top center",
-        "bottom center",
-        "top left",
-        "top right",
-        "bottom left",
-        "bottom right",
-    ]
-    plot_df["textposition_map"] = [positions_cycle[i % len(positions_cycle)] for i in range(len(plot_df))]
-
     fig = go.Figure()
     fig.add_trace(
         go.Scattermapbox(
-            lat=plot_df["latitud"],
-            lon=plot_df["longitud"],
+            lat=plot_df["latitud"].astype(float),
+            lon=plot_df["longitud"].astype(float),
             mode="markers+text",
-            text=plot_df["label_map"],
-            textposition=plot_df["textposition_map"],
+            text=plot_df["label_map"].fillna(""),
+            textposition="top center",
             textfont=dict(size=10, color=TEXT_MAIN),
             marker=dict(
                 size=plot_df["marker_size"],
@@ -483,7 +472,7 @@ def build_station_map(df_map):
                 opacity=0.82,
                 sizemode="diameter",
             ),
-            customdata=plot_df[["estacion", "servicio", "hover_afluencia", "hover_meta"]],
+            customdata=plot_df[["estacion", "servicio", "hover_afluencia", "hover_meta"]].fillna(""),
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "Servicio: %{customdata[1]}<br>"
