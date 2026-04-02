@@ -473,6 +473,7 @@ def compute_map_bounds(df_map):
     )
 
 
+
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -481,39 +482,31 @@ EFE_WHITE = "#FFFFFF"
 
 def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
     """
-    Reemplazo sugerido para la función build_station_map().
-
-    Cambios incorporados:
-    - encuadre automático un poco más amplio para que entren todas las estaciones;
-    - solo se muestra el nombre de la estación en el mapa;
-    - se elimina la afluencia visible en la etiqueta;
-    - se mantiene hover con información de apoyo.
+    Construye el mapa georreferenciado de estaciones con:
+    - encuadre automático suficientemente amplio para ver todas las estaciones;
+    - solo nombre de estación visible en el mapa;
+    - tamaño del punto según afluencia registrada (columna entradas);
+    - hover de apoyo con nombre, afluencia y meta.
     """
 
     plot_df = valid_map_df.copy()
 
     if plot_df.empty:
         fig = go.Figure()
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=0, b=0),
-            height=760
-        )
+        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=760)
         return fig
 
-    # Conversión robusta de coordenadas
+    # Coordenadas robustas
     plot_df["latitud"] = pd.to_numeric(plot_df["latitud"], errors="coerce")
     plot_df["longitud"] = pd.to_numeric(plot_df["longitud"], errors="coerce")
     plot_df = plot_df.dropna(subset=["latitud", "longitud"]).copy()
 
     if plot_df.empty:
         fig = go.Figure()
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=0, b=0),
-            height=760
-        )
+        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=760)
         return fig
 
-    # Etiqueta visible: solo nombre de estación
+    # Nombre visible en mapa
     plot_df["label_mapa"] = (
         plot_df["estacion"]
         .fillna("")
@@ -521,14 +514,18 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
         .str.strip()
     )
 
-    # Tamaño de marcadores según afluencia, manteniendo un rango legible
-    afluencia = pd.to_numeric(plot_df["afluencia"], errors="coerce").fillna(0)
-    if afluencia.max() > afluencia.min():
+    # Afluencia registrada: el archivo usa la columna "entradas"
+    plot_df["entradas"] = pd.to_numeric(plot_df.get("entradas"), errors="coerce").fillna(0)
+    plot_df["meta_entradas"] = pd.to_numeric(plot_df.get("meta_entradas"), errors="coerce")
+
+    # Tamaño de marcadores según afluencia, manteniendo rango legible
+    afluencia = plot_df["entradas"]
+    if len(afluencia) > 1 and float(afluencia.max()) > float(afluencia.min()):
         plot_df["marker_size"] = 10 + ((afluencia - afluencia.min()) / (afluencia.max() - afluencia.min())) * 18
     else:
         plot_df["marker_size"] = 14
 
-    # ---- Encuadre automático más amplio ----
+    # Encuadre automático amplio para incluir todas las estaciones
     min_lat = float(plot_df["latitud"].min())
     max_lat = float(plot_df["latitud"].max())
     min_lon = float(plot_df["longitud"].min())
@@ -537,13 +534,8 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
     lat_span = max(max_lat - min_lat, 0.01)
     lon_span = max(max_lon - min_lon, 0.01)
 
-    # Padding mayor que en la versión anterior para abrir un poco el encuadre
-    lat_pad = lat_span * 0.18
-    lon_pad = lon_span * 0.18
-
-    # Para servicios muy cortos, asegurar margen mínimo visible
-    lat_pad = max(lat_pad, 0.015)
-    lon_pad = max(lon_pad, 0.015)
+    lat_pad = max(lat_span * 0.18, 0.015)
+    lon_pad = max(lon_span * 0.18, 0.015)
 
     bounds = {
         "west": min_lon - lon_pad,
@@ -564,7 +556,7 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
             textfont=dict(
                 size=12,
                 color=EFE_BLUE,
-                family="Arial Black, Arial, sans-serif"
+                family="Arial, sans-serif"
             ),
             marker=dict(
                 size=plot_df["marker_size"],
@@ -573,7 +565,7 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
                 sizemode="diameter",
                 symbol="circle"
             ),
-            customdata=plot_df[["estacion", "afluencia", "meta_entradas"]].fillna(""),
+            customdata=plot_df[["estacion", "entradas", "meta_entradas"]].fillna(""),
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
                 "%{customdata[1]:,.0f}<br>"
