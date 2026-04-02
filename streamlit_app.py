@@ -178,6 +178,26 @@ def normalize_text(text):
     return text.strip().lower()
 
 
+def abbreviate_station_label(name):
+    raw = "" if name is None else str(name).strip()
+    if raw == "":
+        return ""
+
+    cleaned = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    cleaned = cleaned.replace("-", " ").replace("/", " ")
+    stopwords = {"de", "del", "la", "las", "los", "y", "el", "san", "santa"}
+    parts = [p for p in cleaned.split() if p and p.lower() not in stopwords]
+
+    if len(parts) >= 2:
+        abbr = "".join(part[0] for part in parts[:3]).upper()
+        if len(abbr) >= 2:
+            return abbr
+
+    token = parts[0] if parts else cleaned.replace(" ", "")
+    token = "".join(ch for ch in token if ch.isalnum())
+    return token[:3].upper()
+
+
 def is_occupancy_rate_kpi(kpi_name):
     name = normalize_text(kpi_name)
     return "tasa" in name and "ocupacion" in name
@@ -413,30 +433,12 @@ def compute_map_view(df_map):
 
     center = {"lat": (lat_min + lat_max) / 2, "lon": (lon_min + lon_max) / 2}
 
-    lat_range = max(lat_max - lat_min, 0.01)
-    lon_range = max(lon_max - lon_min, 0.01)
+    lat_range = max(lat_max - lat_min, 0.002)
+    lon_range = max(lon_max - lon_min, 0.002)
     max_range = max(lat_range, lon_range)
 
-    if max_range > 20:
-        zoom = 4
-    elif max_range > 10:
-        zoom = 5
-    elif max_range > 5:
-        zoom = 6
-    elif max_range > 2:
-        zoom = 7
-    elif max_range > 1:
-        zoom = 8
-    elif max_range > 0.5:
-        zoom = 9
-    elif max_range > 0.25:
-        zoom = 10
-    elif max_range > 0.12:
-        zoom = 11
-    elif max_range > 0.06:
-        zoom = 12
-    else:
-        zoom = 13
+    zoom = 9.9 - math.log(max_range, 2)
+    zoom = max(7.2, min(15.2, zoom))
 
     return center, zoom
 
@@ -448,54 +450,45 @@ def build_station_map(df_map):
 
     max_val = float(plot_df["afluencia_size"].max()) if len(plot_df) else 0
     if max_val <= 0:
-        plot_df["marker_size"] = 12
+        plot_df["marker_size"] = 10
     else:
-        plot_df["marker_size"] = 10 + (plot_df["afluencia_size"] / max_val) * 24
+        plot_df["marker_size"] = 9 + (plot_df["afluencia_size"] / max_val) * 20
 
     plot_df["hover_afluencia"] = plot_df["entradas"].apply(fmt_pax)
     plot_df["hover_meta"] = plot_df["meta_entradas"].apply(fmt_pax)
-    plot_df["hover_perdida"] = plot_df["perdida_pax"].apply(fmt_pax)
-    plot_df["hover_fuga"] = plot_df["fuga_pct_display"].apply(fmt_fuga_pct)
+    plot_df["label_map"] = plot_df["estacion"].apply(abbreviate_station_label)
 
-    route_df = infer_station_path(plot_df)
+    positions_cycle = [
+        "top center",
+        "bottom center",
+        "top left",
+        "top right",
+        "bottom left",
+        "bottom right",
+    ]
+    plot_df["textposition_map"] = [positions_cycle[i % len(positions_cycle)] for i in range(len(plot_df))]
 
     fig = go.Figure()
-    if len(route_df) >= 2:
-        fig.add_trace(
-            go.Scattermapbox(
-                lat=route_df["latitud"],
-                lon=route_df["longitud"],
-                mode="lines",
-                line=dict(width=4, color="#4B5563"),
-                opacity=0.55,
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        )
-
     fig.add_trace(
         go.Scattermapbox(
             lat=plot_df["latitud"],
             lon=plot_df["longitud"],
             mode="markers+text",
-            text=plot_df["estacion"],
-            textposition="top center",
+            text=plot_df["label_map"],
+            textposition=plot_df["textposition_map"],
             textfont=dict(size=10, color=TEXT_MAIN),
             marker=dict(
                 size=plot_df["marker_size"],
                 color=EFE_BLUE,
-                opacity=0.80,
+                opacity=0.82,
                 sizemode="diameter",
             ),
-            customdata=plot_df[["comuna", "servicio", "hover_afluencia", "hover_meta", "hover_perdida", "hover_fuga"]],
+            customdata=plot_df[["estacion", "servicio", "hover_afluencia", "hover_meta"]],
             hovertemplate=(
-                "<b>%{text}</b><br>"
-                "Comuna: %{customdata[0]}<br>"
+                "<b>%{customdata[0]}</b><br>"
                 "Servicio: %{customdata[1]}<br>"
                 "Afluencia: %{customdata[2]}<br>"
-                "Meta: %{customdata[3]}<br>"
-                "Pérdida: %{customdata[4]}<br>"
-                "Fuga: %{customdata[5]}<extra></extra>"
+                "Meta: %{customdata[3]}<extra></extra>"
             ),
             showlegend=False,
         )
@@ -503,7 +496,7 @@ def build_station_map(df_map):
 
     fig.update_layout(
         mapbox=dict(
-            style="carto-positron",
+            style="open-street-map",
             center=center,
             zoom=zoom,
         ),
