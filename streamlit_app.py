@@ -448,26 +448,33 @@ def infer_station_path(df_map):
     return route_df.iloc[order].copy()
 
 
-def compute_map_view(df_map):
-    lat_min, lat_max = float(df_map["latitud"].min()), float(df_map["latitud"].max())
-    lon_min, lon_max = float(df_map["longitud"].min()), float(df_map["longitud"].max())
 
-    center = {"lat": (lat_min + lat_max) / 2, "lon": (lon_min + lon_max) / 2}
+def compute_map_bounds(df_map):
+    lat_min = float(df_map["lat_float"].min())
+    lat_max = float(df_map["lat_float"].max())
+    lon_min = float(df_map["lon_float"].min())
+    lon_max = float(df_map["lon_float"].max())
 
-    lat_range = max(lat_max - lat_min, 0.002)
-    lon_range = max(lon_max - lon_min, 0.002)
-    max_range = max(lat_range, lon_range)
+    lat_range = lat_max - lat_min
+    lon_range = lon_max - lon_min
 
-    zoom = 9.6 - math.log(max_range, 2)
-    zoom = max(6.9, min(14.8, zoom))
+    # Expansión mínima para evitar encuadres degenerados en servicios con pocas estaciones
+    min_lat_pad = 0.01
+    min_lon_pad = 0.01
 
-    return center, zoom
+    lat_pad = max(lat_range * 0.08, min_lat_pad)
+    lon_pad = max(lon_range * 0.08, min_lon_pad)
+
+    return dict(
+        south=lat_min - lat_pad,
+        north=lat_max + lat_pad,
+        west=lon_min - lon_pad,
+        east=lon_max + lon_pad,
+    )
 
 
 def build_station_map(df_map):
     plot_df = df_map.copy()
-    center, zoom = compute_map_view(plot_df)
-
     plot_df["afluencia_size"] = pd.to_numeric(plot_df["entradas"], errors="coerce").fillna(0).clip(lower=0)
     max_val = float(plot_df["afluencia_size"].max()) if len(plot_df) else 0
     if max_val <= 0:
@@ -486,6 +493,8 @@ def build_station_map(df_map):
     plot_df["lat_float"] = pd.to_numeric(plot_df["latitud"], errors="coerce")
     plot_df["lon_float"] = pd.to_numeric(plot_df["longitud"], errors="coerce")
     plot_df = plot_df.dropna(subset=["lat_float", "lon_float"]).copy()
+
+    bounds = compute_map_bounds(plot_df)
 
     fig = go.Figure()
     fig.add_trace(
@@ -529,8 +538,7 @@ def build_station_map(df_map):
                     below="traces",
                 )
             ],
-            center=center,
-            zoom=zoom,
+            bounds=bounds,
         ),
         margin=dict(l=8, r=8, t=20, b=8),
         paper_bgcolor=EFE_WHITE,
