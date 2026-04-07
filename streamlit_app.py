@@ -405,12 +405,13 @@ def periodo_to_label(value):
     return f"{meses.get(int(dt.month), str(dt.month))}-{str(dt.year)[2:]}"
 
 
-def build_line_chart(df, title, color=None, line_dash=None, height=340):
+def build_line_chart(df, title, color=None, line_dash=None, height=340, unit=None, kpi_name=None):
     plot_df = df.copy()
     plot_df["periodo_date"] = plot_df["periodo"].apply(periodo_to_date)
     plot_df = plot_df.sort_values(["periodo_date", "periodo"])
     plot_df["periodo_label"] = plot_df["periodo"].apply(periodo_to_label)
     category_order = list(dict.fromkeys(plot_df["periodo_label"].dropna().tolist()))
+    plot_df["valor_label"] = plot_df["valor"].apply(lambda v: fmt_number(v, unit or "", kpi_name))
 
     fig = px.line(
         plot_df,
@@ -419,8 +420,10 @@ def build_line_chart(df, title, color=None, line_dash=None, height=340):
         color=color,
         line_dash=line_dash,
         markers=True,
+        text="valor_label",
         title=title,
     )
+    fig.update_traces(textposition="top center")
     fig.update_layout(
         plot_bgcolor=EFE_WHITE,
         paper_bgcolor=EFE_WHITE,
@@ -848,7 +851,7 @@ def render_resumen_ejecutivo():
                     )
                     render_observation_box(row.get("observacion", None))
 
-    st.markdown("<div class='section-title'>Evolución por grupos de servicio</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Evolución por servicio</div>", unsafe_allow_html=True)
     nombres_kpi = sorted(kpis_hist["nombre"].dropna().astype(str).unique().tolist())
     resumen_kpi_sel = option_selector(
         "Seleccione KPI para evolución",
@@ -860,24 +863,34 @@ def render_resumen_ejecutivo():
     hist_sel = kpis_hist[kpis_hist["nombre"] == resumen_kpi_sel].copy()
     hist_sel = scale_kpi_dataframe_for_display(hist_sel, resumen_kpi_sel, ("valor", "meta"))
 
-    left, right = st.columns(2)
-    with left:
-        bt_hist = hist_sel[hist_sel["servicio"] == "Biotren"].copy()
-        if bt_hist.empty:
-            st.info("No hay datos de Biotren para el KPI seleccionado.")
-        else:
-            bt_hist = bt_hist.groupby("periodo", as_index=False)["valor"].sum()
-            fig_bt = build_line_chart(bt_hist, f"{resumen_kpi_sel} - Biotren", height=360)
-            fig_bt.update_traces(line_color=EFE_BLUE)
-            st.plotly_chart(fig_bt, use_container_width=True)
-    with right:
-        otros_hist = hist_sel[hist_sel["servicio"].isin(RURAL_SERVICES)].copy()
-        if otros_hist.empty:
-            st.info("No hay datos de otros servicios para el KPI seleccionado.")
-        else:
-            otros_hist = otros_hist.groupby(["periodo", "servicio"], as_index=False)["valor"].sum()
-            fig_ot = build_line_chart(otros_hist, f"{resumen_kpi_sel} - Otros servicios", color="servicio", height=360)
-            st.plotly_chart(fig_ot, use_container_width=True)
+    unit_hist = None
+    if not hist_sel.empty and "unidad" in hist_sel.columns:
+        unit_hist = hist_sel["unidad"].dropna().astype(str).iloc[0] if not hist_sel["unidad"].dropna().empty else None
+
+    servicios_hist = [svc for svc in servicios_sel if svc in hist_sel["servicio"].astype(str).unique().tolist()]
+    if not servicios_hist:
+        st.info("No hay datos históricos para el KPI seleccionado.")
+    else:
+        cols_por_fila = 2 if len(servicios_hist) > 1 else 1
+        for i in range(0, len(servicios_hist), cols_por_fila):
+            servicios_row = servicios_hist[i:i + cols_por_fila]
+            row_cols = st.columns(cols_por_fila)
+            for j, servicio in enumerate(servicios_row):
+                with row_cols[j]:
+                    svc_hist = hist_sel[hist_sel["servicio"].astype(str) == str(servicio)].copy()
+                    if svc_hist.empty:
+                        st.info(f"No hay datos de {servicio} para el KPI seleccionado.")
+                    else:
+                        svc_hist = svc_hist.groupby("periodo", as_index=False)["valor"].sum()
+                        fig_svc = build_line_chart(
+                            svc_hist,
+                            f"{resumen_kpi_sel} - {servicio}",
+                            height=360,
+                            unit=unit_hist,
+                            kpi_name=resumen_kpi_sel,
+                        )
+                        fig_svc.update_traces(line_color=EFE_BLUE)
+                        st.plotly_chart(fig_svc, use_container_width=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -898,7 +911,7 @@ def render_kpis():
             st.info("No hay datos de Biotren para el KPI seleccionado.")
         else:
             bt_hist = bt_hist.groupby("periodo", as_index=False)["valor"].sum()
-            fig_bt = build_line_chart(bt_hist, f"{kpi_sel} - Biotren", height=360)
+            fig_bt = build_line_chart(bt_hist, f"{kpi_sel} - Biotren", height=360, unit=hist_kpi["unidad"].dropna().astype(str).iloc[0] if not hist_kpi.empty and "unidad" in hist_kpi.columns and not hist_kpi["unidad"].dropna().empty else None, kpi_name=kpi_sel)
             fig_bt.update_traces(line_color=EFE_BLUE)
             st.plotly_chart(fig_bt, use_container_width=True)
     with col_b:
@@ -907,7 +920,7 @@ def render_kpis():
             st.info("No hay datos de otros servicios para el KPI seleccionado.")
         else:
             otros_hist = otros_hist.groupby(["periodo", "servicio"], as_index=False)["valor"].sum()
-            fig_ot = build_line_chart(otros_hist, f"{kpi_sel} - Otros servicios", color="servicio", height=360)
+            fig_ot = build_line_chart(otros_hist, f"{kpi_sel} - Otros servicios", color="servicio", height=360, unit=hist_kpi["unidad"].dropna().astype(str).iloc[0] if not hist_kpi.empty and "unidad" in hist_kpi.columns and not hist_kpi["unidad"].dropna().empty else None, kpi_name=kpi_sel)
             st.plotly_chart(fig_ot, use_container_width=True)
 
     st.markdown("<div class='section-title'>Valor vs meta por servicio</div>", unsafe_allow_html=True)
