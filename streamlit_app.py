@@ -129,6 +129,22 @@ st.markdown(
         color: {WARNING};
     }}
 
+    .efe-observation-empty {{
+        background: #ECFDF5;
+        border: 1px solid #A7F3D0;
+        border-radius: 12px;
+        padding: 0.7rem 0.85rem;
+        font-size: 0.84rem;
+        color: {TEXT_MAIN};
+        margin-top: 0.45rem;
+        margin-bottom: 0.1rem;
+        line-height: 1.35;
+    }}
+
+    .efe-observation-empty strong {{
+        color: {SUCCESS};
+    }}
+
     .small-note {{
         color: {TEXT_MUTED};
         font-size: 0.82rem;
@@ -596,7 +612,7 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
     lon_span = max(max_lon - min_lon, 0.01)
 
     lat_pad = max(lat_span * 0.18, 0.015)
-    lon_pad = max(lon_span * 0.40, 0.04)
+    lon_pad = max(lon_span * 0.70, 0.04)
 
     bounds = {
         "west": min_lon - lon_pad,
