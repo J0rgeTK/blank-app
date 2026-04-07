@@ -175,12 +175,29 @@ st.markdown(
     }}
 
     .nav-panel {{
-        background: rgba(255,255,255,0.82);
+        background: rgba(255,255,255,0.92);
         border: 1px solid #E2E8F0;
         border-radius: 16px;
         padding: 0.7rem 0.95rem 0.15rem 0.95rem;
         margin: 0.35rem 0 1rem 0;
-        box-shadow: 0 8px 18px rgba(0, 40, 87, 0.05);
+        box-shadow: 0 8px 18px rgba(0, 40, 87, 0.08);
+        backdrop-filter: blur(6px);
+    }}
+
+    .sticky-nav-anchor {{
+        display: block;
+        height: 0;
+        margin: 0;
+        padding: 0;
+    }}
+
+    div[data-testid="stVerticalBlock"]:has(.sticky-nav-anchor) {{
+        position: sticky;
+        top: 0.35rem;
+        z-index: 999;
+        background: linear-gradient(180deg, rgba(244,246,248,0.98) 0%, rgba(244,246,248,0.96) 88%, rgba(244,246,248,0.0) 100%);
+        padding-top: 0.2rem;
+        padding-bottom: 0.35rem;
     }}
 
     .content-panel {{
@@ -612,7 +629,7 @@ def build_station_map(valid_map_df: pd.DataFrame) -> go.Figure:
     lon_span = max(max_lon - min_lon, 0.01)
 
     lat_pad = max(lat_span * 0.18, 0.015)
-    lon_pad = max(lon_span * 0.70, 0.04)
+    lon_pad = max(lon_span * 0.40, 0.04)
 
     bounds = {
         "west": min_lon - lon_pad,
@@ -854,15 +871,17 @@ else:
 # =========================================================
 # NAVEGACIÓN PRINCIPAL
 # =========================================================
-st.markdown("<div class='nav-panel'>", unsafe_allow_html=True)
-section_sel = option_selector(
-    "Navegación",
-    ["Resumen ejecutivo", "KPIs", "Personas", "Detalle Servicio"],
-    key="main_nav_selector",
-    default="Resumen ejecutivo",
-    horizontal=True,
-)
-st.markdown("</div>", unsafe_allow_html=True)
+with st.container():
+    st.markdown("<span class='sticky-nav-anchor'></span>", unsafe_allow_html=True)
+    st.markdown("<div class='nav-panel'>", unsafe_allow_html=True)
+    section_sel = option_selector(
+        "Navegación",
+        ["Resumen ejecutivo", "KPIs", "Personas", "Detalle Servicio"],
+        key="main_nav_selector",
+        default="Resumen ejecutivo",
+        horizontal=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # =========================================================
