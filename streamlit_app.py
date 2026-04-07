@@ -193,7 +193,7 @@ st.markdown(
 
     div[data-testid="stVerticalBlock"]:has(.sticky-nav-anchor) {{
         position: sticky;
-        top: 5.75rem;
+        top: 5.25rem;
         z-index: 999;
         background: linear-gradient(180deg, rgba(244,246,248,0.98) 0%, rgba(244,246,248,0.96) 88%, rgba(244,246,248,0.0) 100%);
         padding-top: 0.35rem;
