@@ -8,6 +8,10 @@ import math
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Nota: para reducir al máximo el chrome superior en Streamlit Community Cloud,
+# este archivo está pensado para complementarse con .streamlit/config.toml
+# usando [client] toolbarMode = "minimal".
+
 # =========================================================
 # CONFIGURACIÓN GENERAL
 # =========================================================
@@ -15,7 +19,7 @@ st.set_page_config(
     page_title="EFE Sur | KPIs e Iniciativas - Gerencia de Pasajeros",
     page_icon="🚆",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # =========================================================
@@ -44,6 +48,39 @@ st.markdown(
     .stApp {{
         background-color: {BG_LIGHT};
         color: {TEXT_MAIN};
+    }}
+
+    header[data-testid="stHeader"] {{
+        display: none !important;
+    }}
+
+    div[data-testid="stToolbar"] {{
+        display: none !important;
+    }}
+
+    div[data-testid="stDecoration"] {{
+        display: none !important;
+    }}
+
+    div[data-testid="stStatusWidget"] {{
+        display: none !important;
+    }}
+
+    div[data-testid="collapsedControl"] {{
+        display: none !important;
+    }}
+
+    section[data-testid="stSidebar"] {{
+        display: none !important;
+    }}
+
+    #MainMenu {{
+        visibility: hidden;
+    }}
+
+    footer {{
+        visibility: hidden;
+        height: 0;
     }}
 
     .main-title {{
@@ -151,7 +188,7 @@ st.markdown(
     }}
 
     .block-container {{
-        padding-top: 2rem;
+        padding-top: 0.8rem;
         padding-bottom: 1rem;
     }}
 
@@ -184,6 +221,29 @@ st.markdown(
         backdrop-filter: blur(6px);
     }}
 
+    .filters-panel {{
+        background: rgba(255,255,255,0.92);
+        border: 1px solid #E2E8F0;
+        border-radius: 16px;
+        padding: 0.95rem 1rem 0.7rem 1rem;
+        margin: 0.6rem 0 1rem 0;
+        box-shadow: 0 8px 18px rgba(0, 40, 87, 0.06);
+    }}
+
+    .filters-title {{
+        font-size: 1rem;
+        font-weight: 700;
+        color: {EFE_BLUE};
+        margin-bottom: 0.35rem;
+    }}
+
+    .chrome-note {{
+        color: {TEXT_MUTED};
+        font-size: 0.78rem;
+        margin-top: 0.35rem;
+    }}
+
+
     .sticky-nav-anchor {{
         display: block;
         height: 0;
@@ -193,7 +253,7 @@ st.markdown(
 
     div[data-testid="stVerticalBlock"]:has(.sticky-nav-anchor) {{
         position: sticky;
-        top: 5.25rem;
+        top: 2.75rem;
         z-index: 999;
         background: linear-gradient(180deg, rgba(244,246,248,0.98) 0%, rgba(244,246,248,0.96) 88%, rgba(244,246,248,0.0) 100%);
         padding-top: 0.35rem;
@@ -571,6 +631,10 @@ def compute_map_bounds(df_map):
 import pandas as pd
 import plotly.graph_objects as go
 
+# Nota: para reducir al máximo el chrome superior en Streamlit Community Cloud,
+# este archivo está pensado para complementarse con .streamlit/config.toml
+# usando [client] toolbarMode = "minimal".
+
 EFE_BLUE = "#002857"
 EFE_WHITE = "#FFFFFF"
 
@@ -818,22 +882,8 @@ else:
 periodos = sorted(kpis["periodo"].dropna().astype(str).unique().tolist())
 default_period_index = len(periodos) - 1 if periodos else 0
 
-with st.sidebar:
-    st.markdown("<div class='section-title'>Filtros complementarios</div>", unsafe_allow_html=True)
-
-    servicios_sel = st.multiselect("Servicio", options=servicios_lista, default=servicios_lista)
-
-    estados_ini = sorted(iniciativas["estado"].dropna().astype(str).unique().tolist())
-    estados_ini_sel = st.multiselect("Estado iniciativa", options=estados_ini, default=estados_ini)
-
-    prioridades = sorted(iniciativas["prioridad"].dropna().astype(str).unique().tolist())
-    prioridades_sel = st.multiselect("Prioridad", options=prioridades, default=prioridades)
-
-    responsables = sorted(iniciativas["responsable"].dropna().astype(str).unique().tolist())
-    responsables_sel = st.multiselect("Responsable", options=responsables, default=responsables)
-
-    st.markdown("---")
-    st.markdown(f"<div class='small-note'>Lectura de archivos desde: <b>{data_path}</b></div>", unsafe_allow_html=True)
+# Los filtros se muestran dentro del cuerpo principal para evitar depender del sidebar
+# y limpiar la franja superior de la aplicación.
 
 # =========================================================
 # ENCABEZADO Y PERÍODO VISIBLE
@@ -854,6 +904,38 @@ with col_title:
 with col_periodo:
     st.markdown("<div class='top-period-wrapper'></div>", unsafe_allow_html=True)
     periodo_sel = st.selectbox("Período de análisis", options=periodos, index=default_period_index, key="periodo_top")
+
+# =========================================================
+# FILTROS EN CUERPO PRINCIPAL
+# =========================================================
+estados_ini = sorted(iniciativas["estado"].dropna().astype(str).unique().tolist())
+prioridades = sorted(iniciativas["prioridad"].dropna().astype(str).unique().tolist())
+responsables = sorted(iniciativas["responsable"].dropna().astype(str).unique().tolist())
+
+st.markdown("<div class='filters-panel'>", unsafe_allow_html=True)
+st.markdown("<div class='filters-title'>Filtros complementarios</div>", unsafe_allow_html=True)
+
+f1, f2 = st.columns(2)
+with f1:
+    servicios_sel = st.multiselect("Servicio", options=servicios_lista, default=servicios_lista, key="servicios_body_filter")
+with f2:
+    estados_ini_sel = st.multiselect("Estado iniciativa", options=estados_ini, default=estados_ini, key="estado_body_filter")
+
+f3, f4 = st.columns(2)
+with f3:
+    prioridades_sel = st.multiselect("Prioridad", options=prioridades, default=prioridades, key="prioridad_body_filter")
+with f4:
+    responsables_sel = st.multiselect("Responsable", options=responsables, default=responsables, key="responsable_body_filter")
+
+st.markdown(f"<div class='small-note'>Lectura de archivos desde: <b>{data_path}</b></div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='chrome-note'>"
+    "La limpieza visual superior se refuerza ocultando el header propio de Streamlit desde CSS. "
+    "En despliegues de Community Cloud, la reducción del menú externo se complementa con toolbarMode='minimal' en .streamlit/config.toml."
+    "</div>",
+    unsafe_allow_html=True,
+)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
 # FILTRADO
