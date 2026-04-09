@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -1925,14 +1926,34 @@ def render_perfil_carga():
         st.markdown("</div></div>", unsafe_allow_html=True)
         return
 
+    fechas_disponibles = sorted(fechas_disponibles)
+    fechas_set = set(fechas_disponibles)
+    fecha_default = fechas_disponibles[-1]
+    fecha_key = f"perfil_fecha_cal_{profile_service_sel}"
+    fecha_prev = st.session_state.get(fecha_key)
+    if isinstance(fecha_prev, date):
+        if fecha_prev in fechas_set:
+            fecha_default = fecha_prev
+        else:
+            fecha_default = min(fechas_disponibles, key=lambda d: abs((d - fecha_prev).days))
+
     with sel_date_col:
-        fecha_sel = st.selectbox(
-            "📅 Fecha disponible",
-            options=fechas_disponibles,
-            format_func=lambda d: pd.to_datetime(d).strftime("%d-%m-%Y") if pd.notna(d) else "-",
-            index=0,
-            key=f"perfil_fecha_selector_{profile_service_sel}",
-            help="Selector restringido a fechas con datos disponibles en la carpeta del servicio.",
+        fecha_sel_input = st.date_input(
+            "📅 Fecha",
+            value=fecha_default,
+            min_value=fechas_disponibles[0],
+            max_value=fechas_disponibles[-1],
+            format="DD/MM/YYYY",
+            key=fecha_key,
+            help="Seleccione una fecha desde el calendario. Si no existen datos para esa fecha, se utilizará automáticamente la fecha disponible más cercana.",
+        )
+
+    fecha_sel = fecha_sel_input
+    if fecha_sel not in fechas_set:
+        fecha_sel = min(fechas_disponibles, key=lambda d: abs((d - fecha_sel).days))
+        st.info(
+            f"La fecha seleccionada no tiene datos cargados para {profile_service_sel}. "
+            f"Se utiliza la fecha disponible más cercana: {pd.to_datetime(fecha_sel).strftime('%d-%m-%Y')}."
         )
 
     perfil_fecha = perfil_df[perfil_df["fecha"] == fecha_sel].copy()
