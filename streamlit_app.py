@@ -535,16 +535,37 @@ def format_service_id(value):
         return str(value).strip()
 
 
-def get_perfil_bt_candidates(data_path):
+PROFILE_SERVICE_CONFIG = {
+    "Biotren": {
+        "folder_candidates": ["perfil_bt", ".perfil-bt", ".perfil_bt"],
+        "description": "Formato base implementado para Biotren.",
+    },
+    "Tren Araucanía": {
+        "folder_candidates": ["perfil_ta", "perfil_tren_araucania", ".perfil-ta", ".perfil_tren_araucania"],
+        "description": "Preparado para futura incorporación del formato de perfil de carga.",
+    },
+    "Laja Talcahuano": {
+        "folder_candidates": ["perfil_lt", "perfil_laja_talcahuano", ".perfil-lt", ".perfil_laja_talcahuano"],
+        "description": "Preparado para futura incorporación del formato de perfil de carga.",
+    },
+    "Llanquihue Puerto Montt": {
+        "folder_candidates": ["perfil_lpm", "perfil_llanquihue_puerto_montt", ".perfil-lpm", ".perfil_llanquihue_puerto_montt"],
+        "description": "Preparado para futura incorporación del formato de perfil de carga.",
+    },
+}
+
+
+def get_profile_folder_candidates(service_name, data_path):
     base = Path(__file__).resolve().parent
-    candidates = [
-        base / "perfil_bt",
-        base / ".perfil-bt",
-        base / ".perfil_bt",
-        data_path / "perfil_bt",
-        data_path / ".perfil-bt",
-        data_path / ".perfil_bt",
-    ]
+    config = PROFILE_SERVICE_CONFIG.get(service_name, {})
+    folder_names = config.get("folder_candidates", [])
+    candidates = []
+    for folder_name in folder_names:
+        candidates.extend([
+            base / folder_name,
+            data_path / folder_name,
+        ])
+
     unique = []
     seen = set()
     for candidate in candidates:
@@ -553,6 +574,12 @@ def get_perfil_bt_candidates(data_path):
             unique.append(candidate)
             seen.add(key)
     return unique
+
+
+def get_default_profile_folder_name(service_name):
+    config = PROFILE_SERVICE_CONFIG.get(service_name, {})
+    folder_names = config.get("folder_candidates", [])
+    return folder_names[0] if folder_names else "perfil_carga"
 
 
 def get_station_order_from_profile(df):
@@ -1196,7 +1223,8 @@ def load_data():
 
 
 @st.cache_data
-def load_perfil_bt(data_path):
+def load_profile_service_data(service_name, data_path_str):
+    data_path = Path(data_path_str)
     required_cols = [
         "fecha", "linea", "direccion", "servicio", "estacion",
         "t_arr_est", "t_dep_est", "capacidad_tren", "D_bajadas",
@@ -1205,7 +1233,7 @@ def load_perfil_bt(data_path):
 
     perfil_folder = None
     csv_files = []
-    for candidate in get_perfil_bt_candidates(data_path):
+    for candidate in get_profile_folder_candidates(service_name, data_path):
         if candidate.exists() and candidate.is_dir():
             files = sorted(candidate.glob("*.csv"))
             if files:
@@ -1216,8 +1244,8 @@ def load_perfil_bt(data_path):
                 perfil_folder = candidate
 
     if not csv_files:
-        fallback_folder = perfil_folder if perfil_folder is not None else get_perfil_bt_candidates(data_path)[0]
-        return pd.DataFrame(), str(fallback_folder), required_cols, [f.name for f in csv_files]
+        fallback_folder = perfil_folder if perfil_folder is not None else Path(data_path) / get_default_profile_folder_name(service_name)
+        return pd.DataFrame(), str(fallback_folder), required_cols, [], "no_data"
 
     frames = []
     loaded_files = []
@@ -1231,21 +1259,21 @@ def load_perfil_bt(data_path):
             continue
 
     if not frames:
-        return pd.DataFrame(), str(perfil_folder), required_cols, loaded_files
+        return pd.DataFrame(), str(perfil_folder), required_cols, loaded_files, "read_error"
 
-    perfil_bt = pd.concat(frames, ignore_index=True)
-    missing = [c for c in required_cols if c not in perfil_bt.columns]
+    perfil_df = pd.concat(frames, ignore_index=True)
+    missing = [c for c in required_cols if c not in perfil_df.columns]
     if missing:
-        return perfil_bt, str(perfil_folder), missing, loaded_files
+        return perfil_df, str(perfil_folder), missing, loaded_files, "unsupported_format"
 
-    perfil_bt["fecha"] = pd.to_datetime(perfil_bt["fecha"], errors="coerce").dt.date
-    perfil_bt["linea"] = perfil_bt["linea"].fillna("").astype(str).str.strip()
-    perfil_bt["direccion"] = perfil_bt["direccion"].fillna("").astype(str).str.strip()
-    perfil_bt["estacion"] = perfil_bt["estacion"].fillna("").astype(str).str.strip()
-    perfil_bt["servicio_label"] = perfil_bt["servicio"].apply(format_service_id)
+    perfil_df["fecha"] = pd.to_datetime(perfil_df["fecha"], errors="coerce").dt.date
+    perfil_df["linea"] = perfil_df["linea"].fillna("").astype(str).str.strip()
+    perfil_df["direccion"] = perfil_df["direccion"].fillna("").astype(str).str.strip()
+    perfil_df["estacion"] = perfil_df["estacion"].fillna("").astype(str).str.strip()
+    perfil_df["servicio_label"] = perfil_df["servicio"].apply(format_service_id)
 
     for time_col in ["t_arr_est", "t_dep_est"]:
-        perfil_bt[time_col] = pd.to_datetime(perfil_bt[time_col], errors="coerce")
+        perfil_df[time_col] = pd.to_datetime(perfil_df[time_col], errors="coerce")
 
     numeric_cols = [
         "capacidad_tren", "A_llegadas_anden", "D_bajadas", "Demanda_anden",
@@ -1253,15 +1281,14 @@ def load_perfil_bt(data_path):
         "L_in_abordo", "L_out_abordo"
     ]
     for col in numeric_cols:
-        if col in perfil_bt.columns:
-            perfil_bt[col] = pd.to_numeric(perfil_bt[col], errors="coerce")
+        if col in perfil_df.columns:
+            perfil_df[col] = pd.to_numeric(perfil_df[col], errors="coerce")
 
-    perfil_bt = perfil_bt.dropna(subset=["fecha"]).copy()
-    return perfil_bt, str(perfil_folder), [], loaded_files
+    perfil_df = perfil_df.dropna(subset=["fecha"]).copy()
+    return perfil_df, str(perfil_folder), [], loaded_files, "ok"
 
 
 kpis, iniciativas, personas, servicios, estaciones, afluencia_estacion, data_path = load_data()
-perfil_bt, perfil_bt_path, perfil_bt_missing_cols, perfil_bt_files = load_perfil_bt(data_path)
 
 # =========================================================
 # PREPARACIÓN DE DATOS
@@ -1322,7 +1349,7 @@ with hero_left:
     with title_col:
         st.markdown("<div class='hero-kicker'>Seguimiento ejecutivo</div>", unsafe_allow_html=True)
         st.markdown("<div class='main-title'>KPIs e Iniciativas - Gerencia de Pasajeros</div>", unsafe_allow_html=True)
-        st.markdown("<div class='subtitle'>Panel ejecutivo para monitorear desempeño, gestión de iniciativas, estaciones y perfil de carga de Biotren.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='subtitle'>Panel ejecutivo para monitorear desempeño, gestión de iniciativas, estaciones y perfiles de carga por servicio.</div>", unsafe_allow_html=True)
 
 with hero_right:
     st.markdown("<div class='top-period-wrapper'></div>", unsafe_allow_html=True)
@@ -1433,7 +1460,7 @@ with st.container():
     st.markdown("<div class='nav-panel'>", unsafe_allow_html=True)
     section_sel = option_selector(
         "Navegación",
-        ["Resumen ejecutivo", "KPIs", "Personas", "Estaciones", "Perfil de Carga - Biotren"],
+        ["Resumen ejecutivo", "KPIs", "Personas", "Estaciones", "Perfil de Carga"],
         key="main_nav_selector",
         default="Resumen ejecutivo",
         horizontal=True,
@@ -1817,91 +1844,137 @@ def render_detalle_servicio():
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 
-def render_perfil_carga_biotren():
+def render_perfil_carga():
     st.markdown("<div class='content-panel'><div class='section-shell'>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>Perfil de Carga - Biotren</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-subtitle'>Lectura diaria por línea, dirección y servicio del comportamiento de pasajeros a bordo, embarques y bajadas por estación, incluyendo una vista comparativa de todos los servicios del día.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Perfil de Carga</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='map-note'>"
-        "Cargue archivos CSV diarios en una carpeta del repositorio. Se recomienda <b>perfil_bt</b>; la aplicación también busca automáticamente variantes como <b>.perfil-bt</b> o ubicaciones equivalentes dentro de la carpeta de datos."
-        "</div>",
+        "<div class='section-subtitle'>Lectura diaria por servicio para revisar pasajeros a bordo, embarques y bajadas por estación, con un comparativo agregado de todos los servicios del día cuando el formato se encuentra implementado.</div>",
         unsafe_allow_html=True,
     )
 
-    if perfil_bt.empty:
+    service_options = list(PROFILE_SERVICE_CONFIG.keys())
+    sel_service_col, sel_date_col, info_col = st.columns([1.15, 1.05, 1.8])
+    with sel_service_col:
+        profile_service_sel = st.selectbox(
+            "Servicio de perfil",
+            options=service_options,
+            index=0,
+            key="profile_service_root_selector",
+        )
+
+    perfil_df, perfil_path, perfil_missing_cols, perfil_files, perfil_status = load_profile_service_data(
+        profile_service_sel,
+        str(data_path),
+    )
+
+    folder_name = get_default_profile_folder_name(profile_service_sel)
+    service_desc = PROFILE_SERVICE_CONFIG.get(profile_service_sel, {}).get("description", "")
+
+    with info_col:
+        st.markdown(
+            f"<div class='map-note'><b>Carpeta esperada:</b> {folder_name}<br>{service_desc}</div>",
+            unsafe_allow_html=True,
+        )
+
+    if perfil_status == "no_data" or perfil_df.empty:
+        with sel_date_col:
+            st.selectbox(
+                "📅 Fecha disponible",
+                options=[],
+                index=None,
+                placeholder="Sin fechas disponibles",
+                key="perfil_fecha_selector_empty",
+            )
         st.info(
-            f"No se encontraron archivos CSV de perfil de carga. Cree la carpeta <b>perfil_bt</b> en el repositorio y agregue allí los archivos diarios. Ruta buscada: <b>{perfil_bt_path}</b>.",
+            f"No se encontraron archivos CSV para <b>{profile_service_sel}</b>. Cree la carpeta <b>{folder_name}</b> en el repositorio y agregue allí los archivos diarios. Ruta buscada: <b>{perfil_path}</b>.",
             icon="ℹ️",
         )
         st.markdown("</div></div>", unsafe_allow_html=True)
         return
 
-    if perfil_bt_missing_cols:
-        st.error(
-            "Los archivos de perfil de carga no contienen todas las columnas requeridas: " + ", ".join(perfil_bt_missing_cols)
+    if perfil_status == "unsupported_format" or perfil_missing_cols:
+        with sel_date_col:
+            fechas_temp = sorted(pd.to_datetime(perfil_df.get("fecha"), errors="coerce").dropna().dt.date.unique().tolist(), reverse=True) if "fecha" in perfil_df.columns else []
+            st.selectbox(
+                "📅 Fecha disponible",
+                options=fechas_temp,
+                format_func=lambda d: pd.to_datetime(d).strftime("%d-%m-%Y") if pd.notna(d) else "-",
+                index=0 if fechas_temp else None,
+                placeholder="Sin fechas válidas",
+                key="perfil_fecha_selector_unsupported",
+            )
+        st.warning(
+            f"Se encontraron archivos para <b>{profile_service_sel}</b>, pero el formato aún no es compatible con esta vista. Columnas faltantes: <b>{', '.join(perfil_missing_cols)}</b>."
         )
+        if perfil_files:
+            st.caption(f"Archivos detectados: {len(perfil_files)} | carpeta origen: {perfil_path}")
         st.markdown("</div></div>", unsafe_allow_html=True)
         return
 
-    fechas_disponibles = sorted(perfil_bt["fecha"].dropna().unique().tolist(), reverse=True)
+    fechas_disponibles = sorted(perfil_df["fecha"].dropna().unique().tolist(), reverse=True)
     if not fechas_disponibles:
+        with sel_date_col:
+            st.selectbox(
+                "📅 Fecha disponible",
+                options=[],
+                index=None,
+                placeholder="Sin fechas válidas",
+                key="perfil_fecha_selector_no_dates",
+            )
         st.warning("No existen fechas válidas dentro de los archivos de perfil de carga.")
         st.markdown("</div></div>", unsafe_allow_html=True)
         return
 
-    default_fecha = fechas_disponibles[0]
-    if pd.notna(default_fecha):
-        try:
-            fecha_index = fechas_disponibles.index(default_fecha)
-        except ValueError:
-            fecha_index = 0
-    else:
-        fecha_index = 0
-
-    sel_1, sel_2, sel_3, sel_4 = st.columns([1.1, 0.9, 1.2, 1.1])
-    with sel_1:
+    with sel_date_col:
         fecha_sel = st.selectbox(
-            "Fecha",
+            "📅 Fecha disponible",
             options=fechas_disponibles,
             format_func=lambda d: pd.to_datetime(d).strftime("%d-%m-%Y") if pd.notna(d) else "-",
-            index=fecha_index,
-            key="perfil_fecha_selector",
+            index=0,
+            key=f"perfil_fecha_selector_{profile_service_sel}",
+            help="Selector restringido a fechas con datos disponibles en la carpeta del servicio.",
         )
 
-    perfil_fecha = perfil_bt[perfil_bt["fecha"] == fecha_sel].copy()
+    perfil_fecha = perfil_df[perfil_df["fecha"] == fecha_sel].copy()
+
     lineas_disp = sorted([x for x in perfil_fecha["linea"].dropna().astype(str).unique().tolist() if x])
-    with sel_2:
+    direcciones_base = []
+    servicios_base = []
+
+    row_sel_2a, row_sel_2b, row_sel_2c = st.columns([0.9, 1.15, 1.15])
+    with row_sel_2a:
         linea_sel = option_selector(
             "Línea",
             lineas_disp,
-            key="perfil_linea_selector",
+            key=f"perfil_linea_selector_{profile_service_sel}",
             default=lineas_disp[0] if lineas_disp else None,
             horizontal=True,
         )
 
     perfil_linea = perfil_fecha[perfil_fecha["linea"].astype(str) == str(linea_sel)].copy() if linea_sel else perfil_fecha.iloc[0:0].copy()
     direcciones_disp = sorted([x for x in perfil_linea["direccion"].dropna().astype(str).unique().tolist() if x])
-    with sel_3:
+    with row_sel_2b:
         direccion_sel = option_selector(
             "Dirección",
             direcciones_disp,
-            key="perfil_direccion_selector",
+            key=f"perfil_direccion_selector_{profile_service_sel}",
             default=direcciones_disp[0] if direcciones_disp else None,
             horizontal=True,
         )
 
     perfil_dir = perfil_linea[perfil_linea["direccion"].astype(str) == str(direccion_sel)].copy() if direccion_sel else perfil_linea.iloc[0:0].copy()
     servicios_disp = sorted(perfil_dir["servicio_label"].dropna().astype(str).unique().tolist(), key=lambda x: (len(x), x))
-    with sel_4:
+    with row_sel_2c:
         servicio_sel = st.selectbox(
-            "Servicio",
+            "Servicio específico",
             options=servicios_disp,
             index=0 if servicios_disp else None,
-            key="perfil_servicio_selector",
+            placeholder="Sin servicios disponibles",
+            key=f"perfil_servicio_selector_{profile_service_sel}",
         ) if servicios_disp else None
 
     if perfil_dir.empty or not servicio_sel:
-        st.warning("No existen datos para la combinación de fecha, línea y dirección seleccionada.")
+        st.warning("No existen datos para la combinación de servicio, fecha, línea y dirección seleccionada.")
         st.markdown("</div></div>", unsafe_allow_html=True)
         return
 
@@ -1923,21 +1996,24 @@ def render_perfil_carga_biotren():
     m3.metric("Bajadas del servicio", fmt_pax(total_bajadas))
     m4.metric("Máximo a bordo", fmt_pax(max_abordo))
 
-    titulo_grafico = f"{linea_sel} | {direccion_sel} | Servicio {servicio_sel}"
+    titulo_grafico = f"{profile_service_sel} | {linea_sel} | {direccion_sel} | Servicio {servicio_sel}"
     fig = build_perfil_carga_chart(perfil_servicio, titulo_grafico)
     st.plotly_chart(fig, use_container_width=True)
 
     if capacidad is not None and pd.notna(max_abordo) and float(capacidad) != 0:
         ocupacion_max = (float(max_abordo) / float(capacidad)) * 100
         st.caption(f"Capacidad tren: {fmt_pax(capacidad)} pasajeros. Ocupación máxima observada: {fmt_pct(ocupacion_max)}.")
-    elif perfil_bt_files:
-        st.caption(f"Archivos cargados: {len(perfil_bt_files)} | carpeta origen: {perfil_bt_path}")
+    elif perfil_files:
+        st.caption(f"Archivos cargados: {len(perfil_files)} | carpeta origen: {perfil_path}")
 
     st.markdown("<div class='section-title'>Comparativo diario de pasajeros a bordo</div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-subtitle'>Se muestra la evolución de <b>L_out_abordo</b> para todos los servicios de la fecha, línea y dirección seleccionadas.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>Se muestra la evolución de <b>L_out_abordo</b> para todos los servicios de la fecha, línea y dirección seleccionadas.</div>",
+        unsafe_allow_html=True,
+    )
     fig_comp = build_perfil_abordo_comparativo_chart(
         perfil_dir,
-        f"{linea_sel} | {direccion_sel} | Todos los servicios del día"
+        f"{profile_service_sel} | {linea_sel} | {direccion_sel} | Todos los servicios del día"
     )
     st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -1962,24 +2038,20 @@ def render_perfil_carga_biotren():
     if "L_out_abordo" in detalle.columns:
         detalle["A bordo salida"] = detalle["L_out_abordo"].apply(fmt_pax)
     if "Capacidad_disponible" in detalle.columns:
-        detalle["Capacidad disponible"] = detalle["Capacidad_disponible"].apply(fmt_pax)
+        detalle["Cap. disponible"] = detalle["Capacidad_disponible"].apply(fmt_pax)
     if "R_quedados" in detalle.columns:
         detalle["Quedados"] = detalle["R_quedados"].apply(fmt_pax)
     if "Q_out_cola" in detalle.columns:
-        detalle["Cola remanente"] = detalle["Q_out_cola"].apply(fmt_pax)
+        detalle["Cola salida"] = detalle["Q_out_cola"].apply(fmt_pax)
+    if "archivo_origen" in detalle.columns:
+        detalle = detalle.rename(columns={"archivo_origen": "Archivo"})
 
-    cols_finales = [
-        col for col in [
-            "estacion", "Llegada", "Salida", "Suben", "Bajan",
-            "A bordo entrada", "A bordo salida", "Capacidad disponible",
-            "Quedados", "Cola remanente", "archivo_origen"
-        ] if col in detalle.columns
+    columnas_mostrar = [
+        c for c in ["estacion", "Llegada", "Salida", "Suben", "Bajan", "A bordo entrada", "A bordo salida", "Cap. disponible", "Quedados", "Cola salida", "Archivo"]
+        if c in detalle.columns
     ]
-    detalle = detalle[cols_finales].rename(columns={
-        "estacion": "Estación",
-        "archivo_origen": "Archivo origen",
-    })
-    st.dataframe(detalle, use_container_width=True, hide_index=True)
+    detalle_show = detalle[columnas_mostrar].rename(columns={"estacion": "Estación"})
+    st.dataframe(detalle_show, use_container_width=True, hide_index=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
 
@@ -1991,11 +2063,11 @@ elif section_sel == "Personas":
     render_personas()
 elif section_sel == "Estaciones":
     render_detalle_servicio()
-elif section_sel == "Perfil de Carga - Biotren":
-    render_perfil_carga_biotren()
+elif section_sel == "Perfil de Carga":
+    render_perfil_carga()
 
 # =========================================================
 # PIE
 # =========================================================
 st.markdown("---")
-st.caption("La aplicación lee automáticamente los archivos CSV contenidos en el repositorio de GitHub, incluyendo la carpeta perfil_bt para el perfil de carga de Biotren.")
+st.caption("La aplicación lee automáticamente los archivos CSV contenidos en el repositorio de GitHub, incluyendo carpetas dedicadas para perfiles de carga por servicio.")
